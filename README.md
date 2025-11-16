@@ -1,10 +1,11 @@
 # Class Implementation Index Maven Plugin
 
-Generate a **`.properties`** index of all **concrete implementations** of one or more base types (abstract
-classes) found in **your project and its dependencies**.
+This plugin enables developers to make their applications **GraalVM Native Image compatible**. It automatically generates the `reflect-config.json` file required by GraalVM to manage reflection in a controlled and predictable way, improving startup performance and reducing binary size.
+By limiting reflection to only the explicitly generated and necessary classes, the plugin ensures optimized runtime behavior with minimal overhead.
+
+This also generate a **`.properties`** index of all **concrete implementations** of one or more base types (abstract classes) found in **your project and its dependencies** which are candidates for reflection.
 
 By default, it writes to:
-
 ```
 classes/META-INF/io/github/absketches/plugin/services.properties
 ```
@@ -22,11 +23,10 @@ org.nanonative.nano.core.NanoServices=org.nanonative.nano.core.Nano
 
 ## Features
 
-- ⚡  **Fast**: parses only .class headers (no ASM, no classloading).
-- 📦 **Works across dependencies**: current module + resolved JARs.
-- 🧹 **Memoization**: stores traversed superclass paths in memory to avoid rework.
-- 🔒 **Zero intrusion**: Developers don’t add code/annotations. Great for finding concrete implementations of specific
-  base types in consumers.
+- ⚡  **Fast**: Inspects only .class headers (no ASM, no classloading).
+- 📦 **Works across dependencies**: Operates seamlessly across the current module and all resolved JARs.
+- 🧹 **Memoized Lookups**: Caches discovered superclass chains in memory to eliminate redundant scans.
+- 🔒 **Zero intrusion**: Requires no developer annotations or code changes - ideal for GraalVM native image workflows.
 
 ---
 
@@ -44,7 +44,7 @@ org.nanonative.nano.core.NanoServices=org.nanonative.nano.core.Nano
 <plugin>
     <groupId>io.github.absketches</groupId>
     <artifactId>codegen-concrete-classes-maven-plugin</artifactId>
-    <version>1.0.0</version>
+    <version>2.0.0</version>
     <executions>
         <execution>
             <id>impl-index</id>
@@ -52,9 +52,9 @@ org.nanonative.nano.core.NanoServices=org.nanonative.nano.core.Nano
                 <goal>generate</goal>
             </goals>
             <configuration>
-                <baseClasses>org.nanonative.nano.core.model.Service,org.nanonative.nano.core.NanoServices
-                </baseClasses>
-                <outputDir>META-INF/io/github/absketches/plugin/services.properties</outputDir>
+                <baseClasses>org.nanonative.nano.core.model.Service,org.nanonative.nano.core.NanoServices</baseClasses>
+                <outputDir>META-INF/io/github/absketches/plugin/</outputDir>
+                <outputFile>services.properties</outputFile>
                 <usePrecompiledLists>true</usePrecompiledLists>
                 <verbose>true</verbose>
             </configuration>
@@ -101,6 +101,13 @@ If `true`, when a dependency JAR already contains a properties file at the same 
 Enable extra logging.
 
 - **Default:** `false`
+
+### `codegenConcreteClass.generateReflectConfig` (boolean)
+
+Merges an existing reflect-config.json or creates a new one to enable native builds.
+The generated `reflect-config.json` will appear under `target/classes/META-INF/native-image/<group>/<artifact>/` if not already present.
+
+- **Default:** `true`
 
 ---
 

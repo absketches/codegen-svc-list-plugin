@@ -3,7 +3,10 @@ package io.github.absketches.plugin.concreteclazz;
 import org.apache.maven.artifact.Artifact;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugins.annotations.*;
+import org.apache.maven.plugins.annotations.Mojo;
+import org.apache.maven.plugins.annotations.Parameter;
+import org.apache.maven.plugins.annotations.LifecyclePhase;
+import org.apache.maven.plugins.annotations.ResolutionScope;
 import org.apache.maven.project.MavenProject;
 
 import java.io.File;
@@ -14,6 +17,7 @@ import java.nio.file.Path;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Enumeration;
 import java.util.HashMap;
@@ -24,17 +28,20 @@ import java.util.HashSet;
 import java.util.TreeSet;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
+import java.util.stream.Collectors;
 
 import static io.github.absketches.plugin.concreteclazz.ClassFileUtils.formatKey;
 import static io.github.absketches.plugin.concreteclazz.ClassFileUtils.formatResultMap;
 import static io.github.absketches.plugin.concreteclazz.ClassFileUtils.isConcrete;
 import static io.github.absketches.plugin.concreteclazz.ClassFileUtils.isSubclassOfBase;
+import static io.github.absketches.plugin.concreteclazz.ClassFileUtils.mergeJson;
 import static io.github.absketches.plugin.concreteclazz.ClassFileUtils.parseBaseClasses;
-import static io.github.absketches.plugin.concreteclazz.ClassFileUtils.readAllPropertiesFromJar;
+import static io.github.absketches.plugin.concreteclazz.ClassFileUtils.readAllPropertiesFromJarDir;
 import static io.github.absketches.plugin.concreteclazz.ClassFileUtils.toDotted;
 
 /**
  * Generates META-INF/io/github/absketches/plugin/services.index (module + dependencies) containing all concrete subclasses of the configured baseClass(es).
+ * Merges into reflect-config.json to make applications GraalVM Native Image compatible.
  * Uses precompiled indexes from dependencies if they exist.
  * Stores subclasses in memory and checks to avoid re-walking super chains.
  * Skips writing the index if content didn't change.
@@ -61,11 +68,21 @@ public final class CodegenConcreteClassPlugin extends AbstractMojo {
     @Parameter(property = "codegenConcreteClass.baseClasses", defaultValue = "org.nanonative.nano.core.model.Service")
     private String baseClasses;
 
-    @Parameter(property = "codegenConcreteClass.outputDir", defaultValue = "META-INF/io/github/absketches/plugin/services.properties")
+    @Parameter(property = "codegenConcreteClass.outputDir", defaultValue = "META-INF/io/github/absketches/plugin/")
     private String outputDir;
 
-    @Parameter(property = "codegenConcreteClass.usePrecompiled", defaultValue = "true")
+    @Parameter(property = "codegenConcreteClass.outputFile", defaultValue = "services.properties")
+    private String outputFile;
+
+    @Parameter(property = "codegenConcreteClass.usePrecompiledLists", defaultValue = "true")
     private boolean usePrecompiledLists;
+
+    /**
+     * Enable/disable generating reflect-config.json - this can help with using reflection in Native images
+     */
+    @Parameter(property = "codegenConcreteClass.generateReflectConfig", defaultValue = "true")
+    private boolean generateReflectConfig;
+
 
     @Override
     public void execute() throws MojoExecutionException {
@@ -99,8 +116,13 @@ public final class CodegenConcreteClassPlugin extends AbstractMojo {
             }
 
             writeProperties(classesDir, result);
+            if (generateReflectConfig) {
+                writeReflectConfig(result.values().stream().flatMap(Set::stream).collect(Collectors.toCollection(LinkedHashSet::new)), classesDir);
+            } else {
+                log("[codegen-svc-list] reflect-config.json generation disabled", 'I');
+            }
         } catch (Exception ex) {
-            log("[codegen-svc-list] Exception occurred: " + ex, 'E');
+            log("Exception occurred: " + ex, 'E');
             throw new MojoExecutionException("codegen-svc-list failed", ex);
         }
     }
@@ -133,20 +155,19 @@ public final class CodegenConcreteClassPlugin extends AbstractMojo {
 
     private void prepareToScanJar(final File jar, final Map<String, ClassHeader> out, final Map<String, Set<String>> precomputed, final List<String> allowedBases) throws IOException {
         try (JarFile jf = new JarFile(jar)) {
-            if (usePrecompiledLists) {
-                JarEntry indexFileEntry = jf.getJarEntry(outputDir);
-                if (null != indexFileEntry && null != allowedBases && !allowedBases.isEmpty()) {
-                    // if all configured bases were present in properties for this jar, we skip scan
-                    if (readAllPropertiesFromJar(jf, indexFileEntry, precomputed, new HashSet<>(allowedBases))) {
-                        log("[codegen-svc-list] using precomputed properties from " + jar.getName(), 'I');
-                        return;
-                    }
+            if (usePrecompiledLists && null != allowedBases && !allowedBases.isEmpty()) {
+                String dirPrefix = outputDir;
+                if (!dirPrefix.endsWith("/"))
+                    dirPrefix = dirPrefix + "/";
+
+                if (readAllPropertiesFromJarDir(jf, dirPrefix, precomputed, new HashSet<>(allowedBases))) {
+                    log("[codegen-svc-list] using precomputed properties from " + jar.getName(), 'I');
+                    return;
                 }
+                log("[codegen-svc-list] precomputed files missing entries for configured bases, will scan classes...", 'I');
             }
+
             // Either no properties or incomplete -> scan classes into headers
-            if (usePrecompiledLists) {
-                log("[codegen-svc-list] precomputed file does not exist or incomplete for configured bases.", 'I');
-            }
             scanHeadersInJar(jf, jar.getName(), out);
         }
     }
@@ -180,13 +201,13 @@ public final class CodegenConcreteClassPlugin extends AbstractMojo {
             }
         }
 
-        log("[codegen-svc-list] services found for " + toDotted(base) + " = " + services.size(), 'I');
+        log("[codegen-svc-list] Implementations found for " + toDotted(base) + " = " + services.size(), 'I');
         result.put(base, services);
     }
 
     // Write results as a .properties file: key = base class (dotted), value = comma-separated implementations
     private void writeProperties(final Path classesDir, final Map<String, Set<String>> resultMap) throws IOException {
-        final Path outputPath = classesDir.resolve(outputDir);
+        final Path outputPath = classesDir.resolve(outputDir + outputFile);
         final Path parent = outputPath.getParent();
         if (null == parent)
             return;
@@ -195,7 +216,7 @@ public final class CodegenConcreteClassPlugin extends AbstractMojo {
         String newContent = formatResultMap(resultMap);
         String oldContent = Files.exists(outputPath) ? Files.readString(outputPath, StandardCharsets.UTF_8) : null;
         if (newContent.equals(oldContent)) {
-            log("[codegen-svc-list] unchanged - skipping", 'I');
+            log("[codegen-svc-list] Unchanged - skipping", 'I');
             return;
         }
 
@@ -204,10 +225,30 @@ public final class CodegenConcreteClassPlugin extends AbstractMojo {
             Files.writeString(tmp, newContent, StandardCharsets.UTF_8);
             log("[codegen-svc-list] Copying tmp file to actual destination", 'I');
             Files.move(tmp, outputPath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-            log("[codegen-svc-list] wrote properties for base types = " + resultMap.size(), 'I');
+            log("[codegen-svc-list] Wrote properties for base types = " + resultMap.size(), 'I');
         } finally {
             Files.deleteIfExists(tmp);
         }
+    }
+
+    private void writeReflectConfig(final Set<String> classNames, final Path classesDir) throws IOException {
+        if (null == classNames || classNames.isEmpty()) {
+            log("[codegen-svc-list] Nothing to write", 'I');
+            return;
+        }
+        final Path configOutput = classesDir
+            .resolve("META-INF/native-image")
+            .resolve(project.getGroupId())
+            .resolve(project.getArtifactId())
+            .resolve("reflect-config.json");
+
+        Files.createDirectories(configOutput.getParent());
+
+        final String existing = Files.exists(configOutput) ? Files.readString(configOutput, StandardCharsets.UTF_8) : null;
+
+        final String json = mergeJson(classNames, existing);
+        Files.writeString(configOutput, json, StandardCharsets.UTF_8);
+        log("[codegen-svc-list] Updated " + classNames.size() + " classes into " + configOutput, 'I');
     }
 
     private void log(final String msg, final char level) {
