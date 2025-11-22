@@ -227,6 +227,13 @@
                         </goals>
                     </execution>
                 </executions>
+                <configuration>
+                    <excludes>
+                        <!-- Exclude CI-generated Maven config files -->
+                        <exclude>**/settings.xml</exclude>
+                        <exclude>**/toolchains.xml</exclude>
+                    </excludes>
+                </configuration>
             </plugin>
         </plugins>
     </build>
