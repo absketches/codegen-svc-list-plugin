@@ -41,6 +41,7 @@
         <maven-plugin-annotations.version>3.13.1</maven-plugin-annotations.version>
         <maven-compiler-plugin.version>3.14.1</maven-compiler-plugin.version>
         <maven-editor-plugin-version>0.1.3</maven-editor-plugin-version>
+        <type-map.version>2025.11.3050708</type-map.version>
 
         <maven-source-plugin.version>3.3.1</maven-source-plugin.version>
         <maven-javadoc-plugin.version>3.12.0</maven-javadoc-plugin.version>
@@ -51,6 +52,12 @@
     </properties>
 
     <dependencies>
+        <dependency>
+            <groupId>berlin.yuna</groupId>
+            <artifactId>type-map</artifactId>
+            <version>${type-map.version}</version>
+        </dependency>
+
         <!-- Mojo APIs (provided by Maven at runtime) -->
         <dependency>
             <groupId>org.apache.maven</groupId>

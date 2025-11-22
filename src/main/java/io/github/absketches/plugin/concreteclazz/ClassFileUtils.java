@@ -1,12 +1,16 @@
 package io.github.absketches.plugin.concreteclazz;
 
+import berlin.yuna.typemap.logic.TypeConverter;
+import berlin.yuna.typemap.model.LinkedTypeMap;
+import berlin.yuna.typemap.model.TypeInfo;
+import berlin.yuna.typemap.model.TypeList;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.Enumeration;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Set;
@@ -16,29 +20,29 @@ import java.util.Properties;
 import java.util.TreeSet;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+
+import static berlin.yuna.typemap.logic.JsonDecoder.jsonListOf;
 
 final class ClassFileUtils {
     private static final String BASE_JAVA_CLASS = "java/lang/Object";
-    private static final Pattern NAME_PATTERN = Pattern.compile("\"name\"\\s*:\\s*\"([^\"]+)\"");
 
     private ClassFileUtils() {}
 
-    static String toDotted(String internalName) {
+    static String toDotted(final String internalName) {
         return internalName.replace('/', '.');
     }
 
-    static String toInternal(String dottedName) {
+    static String toInternal(final String dottedName) {
         return dottedName.replace('.', '/');
     }
 
-    static boolean isConcrete(ClassHeader h) {
+    static boolean isConcrete(final ClassHeader h) {
         return h != null && !h.isInterface() && !h.isAbstract();
     }
 
     // strip .class from name
-    static String formatKey(String classFilePath) {
+    static String formatKey(final String classFilePath) {
         return classFilePath.substring(0, classFilePath.length() - 6);
     }
 
@@ -53,18 +57,13 @@ final class ClassFileUtils {
         return out;
     }
 
-    // Read ALL *.properties under the outputDir inside the JAR and merge.
-    // Returns true if all allowedBases were present across the discovered files.
-    // TODO: Refactor - multiple nested loops
-    static boolean readAllPropertiesFromJarDir(
-        JarFile jf,
-        String dirPrefix,
-        Map<String, Set<String>> precomputed,
-        Set<String> allowedBases
-    ) throws IOException {
+    /**
+     * Read ALL *.properties under the outputDir inside the JAR and merge.
+     * Returns true if all allowedBases were present across the discovered files.
+     */
+    static boolean readAllPropertiesFromJarDir(final JarFile jf, final String dirPrefix, final Map<String, Set<String>> precomputed, final Set<String> allowedBases) throws IOException {
 
         Set<String> matched = new HashSet<>();
-
         for (Enumeration<JarEntry> en = jf.entries(); en.hasMoreElements(); ) {
             JarEntry e = en.nextElement();
             String name = e.getName();
@@ -73,26 +72,9 @@ final class ClassFileUtils {
                 continue;
 
             try (InputStream in = jf.getInputStream(e); BufferedReader br = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
-
                 Properties props = new Properties();
                 props.load(br);
-
-                for (String key : props.stringPropertyNames()) {
-                    String keyInternal = toInternal(key);
-                    if (!allowedBases.contains(keyInternal))
-                        continue;
-
-                    matched.add(keyInternal);
-                    String val = props.getProperty(key);
-                    if (null == val)
-                        continue;
-
-                    Set<String> set = precomputed.computeIfAbsent(keyInternal, k -> new TreeSet<>());
-                    for (String clazz : val.split(",", -1)) {
-                        if (!clazz.isBlank())
-                            set.add(toInternal(clazz.strip()));
-                    }
-                }
+                processEachJar(matched, props, allowedBases, precomputed);
             }
         }
         return matched.containsAll(allowedBases);
@@ -100,10 +82,7 @@ final class ClassFileUtils {
 
 
     // Class hierarchy walk
-    static boolean isSubclassOfBase(String internal,
-                                    Map<String, ClassHeader> headers,
-                                    Map<String, Boolean> cache,
-                                    String baseInternal) {
+    static boolean isSubclassOfBase(final String internal, final Map<String, ClassHeader> headers, final Map<String, Boolean> cache, final String baseInternal) {
         Boolean cached = cache.get(internal);
         if (cached != null) return cached;
 
@@ -159,109 +138,55 @@ final class ClassFileUtils {
         return String.valueOf(sb);
     }
 
+    /**
+     * To create/modify reflect-config JSON file, we will merge existing flags
+     */
     static String mergeJson(final Set<String> classNames, final String existingJson) {
-        // create full JSON object (merge existing flags)
-        final LinkedHashMap<String, String> classIndexMap = new LinkedHashMap<>();
+        final TypeList existingJsonArr = jsonListOf(existingJson);
+        final Set<String> nameSet = classNames.stream().map(ClassFileUtils::toDotted).collect(Collectors.toSet());
+        final TypeList resultJsonArr = new TypeList();
 
         // Keep existing jsonObjects (if any), in their current order
-        if (null != existingJson && !existingJson.isBlank()) {
-            for (String jsonObj : extractTopLevelObjects(existingJson)) {
-                final String name = toDotted(extractName(jsonObj));
-                if (!name.isBlank() && !classIndexMap.containsKey(name)) {
-                    classIndexMap.put(toDotted(name), jsonObj.trim());
+        for (Object json : existingJsonArr) {
+            TypeInfo<?> jsonObj = TypeConverter.convertObj(json, TypeInfo.class);
+            if (jsonObj.isPresent("name")) {
+                String name = jsonObj.get(String.class, "name");
+                if (nameSet.contains(name)) {
+                    jsonObj.setPath("allDeclaredConstructors", true);
+                    nameSet.remove(name);
                 }
             }
+            resultJsonArr.add(jsonObj);
         }
 
-        // Add new classes if not present
-        for (String cn : classNames) {
-            cn = toDotted(cn.trim());
-            if (!classIndexMap.containsKey(cn)) {
-                classIndexMap.put(cn, "{\"name\":\"" + cn + "\", \"allDeclaredConstructors\": true}");
+        for (String name : nameSet) {
+            TypeInfo<?> jsonObj = new LinkedTypeMap();
+            jsonObj.setPathR("name", name).setPath("allDeclaredConstructors", true);
+            resultJsonArr.add(jsonObj);
+        }
+        return resultJsonArr.toJson();
+    }
+
+    private static void processEachJar(final Set<String> matched, final Properties props, final Set<String> allowedBases, final Map<String, Set<String>> precomputed) {
+        for (String key : props.stringPropertyNames()) {
+            String keyInternal = toInternal(key);
+            if (!allowedBases.contains(keyInternal))
                 continue;
-            }
 
-            String existingJsonObj = String.valueOf(classIndexMap.get(cn)).trim();
-            if (existingJsonObj.matches("(?s).*\"allDeclaredConstructors\"\\s*:\\s*true.*")) {
-                // No need to do anything
-            } else if (existingJsonObj.matches("(?s).*\"allDeclaredConstructors\"\\s*:\\s*false.*")) {
-                existingJsonObj = existingJsonObj.replaceFirst("\"allDeclaredConstructors\"\\s*:\\s*false", "\"allDeclaredConstructors\": true");
-            } else {
-                int end = existingJsonObj.lastIndexOf('}');
-                if (end > 0) {
-                    String head = existingJsonObj.substring(0, end).trim();
-                    String sep = head.endsWith("{") ? "" : ",";
-                    existingJsonObj = head + sep + " \"allDeclaredConstructors\": true}";
-                } else {
-                    existingJsonObj = "{\"name\":\"" + cn + "\", \"allDeclaredConstructors\": true}";
-                }
-            }
-            classIndexMap.put(cn, existingJsonObj);
-        }
-        return createJson(classIndexMap);
-    }
-
-    private static String createJson(final LinkedHashMap<String, String> classIndexMap) {
-        final StringBuilder output = new StringBuilder();
-        output.append("[\n");
-        boolean first = true;
-        for (String obj : classIndexMap.values()) {
-            if (!first)
-                output.append(",\n");
-            output.append("  ").append(obj);
-            first = false;
-        }
-        output.append("\n]\n");
-        return output.toString();
-    }
-
-    /**
-     * Pulls top-level JSON objects from the reflect-config.json.
-     */
-    private static List<String> extractTopLevelObjects(final String json) {
-        final List<String> jsonArray = new ArrayList<>();
-        int level = 0, start = -1;
-        boolean inString = false, esc = false;
-        for (int i = 0; i < json.length(); i++) {
-            char c = json.charAt(i);
-            if (inString) {
-                if (esc) {
-                    esc = false;
-                } else if (c == '\\') {
-                    esc = true;
-                } else if (c == '"') {
-                    inString = false;
-                }
+            matched.add(keyInternal);
+            String val = props.getProperty(key);
+            if (null == val)
                 continue;
-            }
-            if (c == '"') {
-                inString = true;
-                continue;
-            }
-            if (c == '{') {
-                if (0 == level) {
-                    start = i;
-                    ++level;
-                }
-            } else if (c == '}') {
-                if (--level == 0 && start >= 0) {
-                    jsonArray.add(json.substring(start, i + 1));
-                    start = -1;
-                }
+
+            Set<String> set = precomputed.computeIfAbsent(keyInternal, k -> new TreeSet<>());
+            for (String clazz : val.split(",", -1)) {
+                if (!clazz.isBlank())
+                    set.add(toInternal(clazz.strip()));
             }
         }
-        return jsonArray;
     }
 
-    /**
-     * Extracts the "name" field from a single Json object.
-     */
-    private static String extractName(final String jsonObj) {
-        final Matcher m = NAME_PATTERN.matcher(jsonObj);
-        return m.find() ? m.group(1) : "";
-    }
-
-    private static void markVisited(List<String> visited, Map<String, Boolean> cache, boolean v) {
+    private static void markVisited(final List<String> visited, final Map<String, Boolean> cache, final boolean v) {
         for (String s : visited) cache.putIfAbsent(s, v);
     }
 }
