@@ -10,7 +10,9 @@
     <packaging>maven-plugin</packaging>
 
     <name>graal-native-support-maven-plugin</name>
-    <description>Plugin for generating concrete class implementations for base classes in consumers along with reflect-config.json to enable GraalVM compatibility</description>
+    <description>Plugin for generating concrete class implementations for base classes in consumers along with
+        reflect-config.json to enable GraalVM compatibility
+    </description>
     <url>https://github.com/absketches/codegen-svc-list-plugin</url>
 
     <scm>
@@ -51,6 +53,7 @@
         <assertj-core.version>3.27.6</assertj-core.version>
         <junit-launcher.version>6.0.1</junit-launcher.version>
 
+        <!-- PUBLISH -->
         <maven-source-plugin.version>3.3.1</maven-source-plugin.version>
         <maven-javadoc-plugin.version>3.12.0</maven-javadoc-plugin.version>
         <maven-gpg-plugin.version>1.6</maven-gpg-plugin.version>
@@ -236,14 +239,15 @@
                                 <goals>
                                     <goal>sign</goal>
                                 </goals>
-                                <configuration>
-                                    <gpgArguments>
-                                        <arg>--pinentry-mode</arg>
-                                        <arg>loopback</arg>
-                                    </gpgArguments>
-                                </configuration>
                             </execution>
                         </executions>
+                        <configuration>
+                            <passphrase>${env.MAVEN_GPG_PASSPHRASE}</passphrase>
+                            <gpgArguments>
+                                <arg>--pinentry-mode</arg>
+                                <arg>loopback</arg>
+                            </gpgArguments>
+                        </configuration>
                     </plugin>
 
                     <!-- Sonatype Central publishing -->
