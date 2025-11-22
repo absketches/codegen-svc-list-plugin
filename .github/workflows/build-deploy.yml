@@ -133,6 +133,19 @@ jobs:
                     git commit -m "chore: release ${{ steps.semver.outputs.semver }}"
                     git push
 
+            -   name: Import GPG key
+                run: |
+                      mkdir -p ~/.gnupg
+                      chmod 700 ~/.gnupg
+                      echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+                      gpg --list-secret-keys
+                env:
+                      GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+
+            -   name: Configure GPG for non-interactive use
+                run: |
+                            echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
+                            echo "pinentry-mode loopback" >> ~/.gnupg/gpg.conf
     deploy:
         needs: [ build, update ]
         if: ${{ needs.update.result == 'success' && github.ref == 'refs/heads/main' }}
@@ -181,4 +194,6 @@ jobs:
 
             -   name: Deploy (release profile)
                 run: mvn -B -P release deploy -s "$HOME/.m2/settings.xml"
+                env:
+                    MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
 
