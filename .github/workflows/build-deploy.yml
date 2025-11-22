@@ -42,7 +42,7 @@ jobs:
                 run: |
                     if [ ! -f target/site/jacoco/jacoco.xml ]; then
                       echo "No JaCoCo report found"
-                      exit 0
+                      exit 1
                     fi
                     jacoco_report=$(find . -type f -name "jacoco.xml" | head -n 1)
                     echo "Jacoco report: ${jacoco_report}"
@@ -78,6 +78,7 @@ jobs:
                         fi
                     else
                       echo "No Jacoco XML report found."
+                      exit 1
                     fi
 
             -   name: Upload JaCoCo HTML report
@@ -87,6 +88,7 @@ jobs:
                     path: target/site/jacoco/
 
     update:
+        needs: [ build ]
         # Only bump version on main, and avoid loop from bot commits
         if: ${{ github.ref == 'refs/heads/main' && github.actor != 'github-actions[bot]' }}
         name: "Version Update (main only)"
@@ -133,7 +135,7 @@ jobs:
                     git push
 
     deploy:
-        needs: [ update ]
+        needs: [ build, update ]
         if: ${{ needs.update.result == 'success' && github.ref == 'refs/heads/main' }}
         name: "Deploy to Maven Central (main only)"
         runs-on: ubuntu-latest
