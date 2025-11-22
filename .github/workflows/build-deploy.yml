@@ -128,7 +128,7 @@ jobs:
             -   name: Set version and commit
                 run: |
                     mvn -B -q versions:set -DnewVersion=${{ steps.semver.outputs.semver }} -DgenerateBackupPoms=false
-                    git add **/pom.xml
+                    git add pom.xml
                     git config user.name "github-actions[bot]"
                     git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
                     git commit -m "chore: release ${{ steps.semver.outputs.semver }}"
