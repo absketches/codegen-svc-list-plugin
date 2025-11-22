@@ -9,8 +9,8 @@
     <version>2.0.0</version>
     <packaging>maven-plugin</packaging>
 
-    <name>Codegen Nano Services</name>
-    <description>Plugin for generating concrete class implementations for base classes in project and dependencies</description>
+    <name>graal-native-support-maven-plugin</name>
+    <description>Plugin for generating concrete class implementations for base classes in consumers along with reflect-config.json to enable GraalVM compatibility</description>
     <url>https://github.com/absketches/codegen-svc-list-plugin</url>
 
     <scm>
