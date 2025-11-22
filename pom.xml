@@ -6,11 +6,13 @@
 
     <groupId>io.github.absketches</groupId>
     <artifactId>codegen-concrete-classes-maven-plugin</artifactId>
-    <version>2.0.0</version>
+    <version>2025.11.3260907</version>
     <packaging>maven-plugin</packaging>
 
-    <name>Codegen Nano Services</name>
-    <description>Plugin for generating concrete class implementations for base classes in project and dependencies</description>
+    <name>graal-native-support-maven-plugin</name>
+    <description>Plugin for generating concrete class implementations for base classes in consumers along with
+        reflect-config.json to enable GraalVM compatibility
+    </description>
     <url>https://github.com/absketches/codegen-svc-list-plugin</url>
 
     <scm>
@@ -35,20 +37,27 @@
     <properties>
         <java-version>21</java-version>
         <project.encoding>UTF-8</project.encoding>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.build.sourceEncoding>${project.encoding}</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>${project.encoding}</project.reporting.outputEncoding>
+
         <maven.core.version>3.9.11</maven.core.version>
         <maven-plugin-plugin.version>3.13.1</maven-plugin-plugin.version>
         <maven-plugin-annotations.version>3.13.1</maven-plugin-annotations.version>
         <maven-compiler-plugin.version>3.14.1</maven-compiler-plugin.version>
+        <jacoco-maven-plugin.version>0.8.14</jacoco-maven-plugin.version>
+        <maven-surefire-plugin.version>3.2.5</maven-surefire-plugin.version>
         <maven-editor-plugin-version>0.1.3</maven-editor-plugin-version>
         <type-map.version>2025.11.3050708</type-map.version>
 
+        <junit.version>6.0.1</junit.version>
+        <assertj-core.version>3.27.6</assertj-core.version>
+        <junit-launcher.version>6.0.1</junit-launcher.version>
+
+        <!-- PUBLISH -->
         <maven-source-plugin.version>3.3.1</maven-source-plugin.version>
         <maven-javadoc-plugin.version>3.12.0</maven-javadoc-plugin.version>
         <maven-gpg-plugin.version>1.6</maven-gpg-plugin.version>
         <central-publishing-maven-plugin.version>0.9.0</central-publishing-maven-plugin.version>
-        <project.build.sourceEncoding>${project.encoding}</project.build.sourceEncoding>
-        <project.reporting.outputEncoding>${project.encoding}</project.reporting.outputEncoding>
     </properties>
 
     <dependencies>
@@ -56,6 +65,31 @@
             <groupId>berlin.yuna</groupId>
             <artifactId>type-map</artifactId>
             <version>${type-map.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-api</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-engine</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.platform</groupId>
+            <artifactId>junit-platform-launcher</artifactId>
+            <version>${junit-launcher.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <version>${assertj-core.version}</version>
+            <scope>test</scope>
         </dependency>
 
         <!-- Mojo APIs (provided by Maven at runtime) -->
@@ -92,6 +126,35 @@
                     <target>${java-version}</target>
                     <release>${java-version}</release>
                 </configuration>
+            </plugin>
+
+            <!-- Run tests -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>${maven-surefire-plugin.version}</version>
+            </plugin>
+
+            <!-- Coverage with JaCoCo -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>${jacoco-maven-plugin.version}</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
 
             <!-- Generates META-INF/maven/plugin.xml from Mojo -->
@@ -137,7 +200,6 @@
                             <goal>jar</goal>
                         </goals>
                         <configuration>
-                            <nodeprecatedlist>true</nodeprecatedlist>
                             <quiet>true</quiet>
                             <doclint>none</doclint>
                             <failOnError>false</failOnError>
@@ -145,6 +207,7 @@
                     </execution>
                 </executions>
             </plugin>
+
             <plugin>
                 <groupId>org.ec4j.maven</groupId>
                 <artifactId>editorconfig-maven-plugin</artifactId>
@@ -163,13 +226,6 @@
     <profiles>
         <profile>
             <id>release</id>
-            <activation>
-                <property>
-                    <name>release</name>
-                    <value>true</value>
-                </property>
-                <activeByDefault>false</activeByDefault>
-            </activation>
             <build>
                 <plugins>
                     <plugin>
@@ -183,14 +239,15 @@
                                 <goals>
                                     <goal>sign</goal>
                                 </goals>
-                                <configuration>
-                                    <gpgArguments>
-                                        <arg>--pinentry-mode</arg>
-                                        <arg>loopback</arg>
-                                    </gpgArguments>
-                                </configuration>
                             </execution>
                         </executions>
+                        <configuration>
+                            <passphrase>${env.MAVEN_GPG_PASSPHRASE}</passphrase>
+                            <gpgArguments>
+                                <arg>--pinentry-mode</arg>
+                                <arg>loopback</arg>
+                            </gpgArguments>
+                        </configuration>
                     </plugin>
 
                     <!-- Sonatype Central publishing -->
