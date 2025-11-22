@@ -5,9 +5,9 @@ By limiting reflection to only the explicitly generated and necessary classes, t
 
 This also generate a **`.properties`** index of all **concrete implementations** of one or more base types (abstract classes) found in **your project and its dependencies** which are candidates for reflection.
 
-By default, it writes to:
+It writes to:
 ```
-classes/META-INF/io/github/absketches/plugin/services.properties
+META-INF/io/github/absketches/plugin/services.properties
 ```
 
 Each **key** is a dotted base class; each **value** is a comma‑separated list of dotted implementation classes.
@@ -44,7 +44,7 @@ org.nanonative.nano.core.NanoServices=org.nanonative.nano.core.Nano
 <plugin>
     <groupId>io.github.absketches</groupId>
     <artifactId>codegen-concrete-classes-maven-plugin</artifactId>
-    <version>2.0.0</version>
+    <version>${codegen-mvn-plugin.version}</version>
     <executions>
         <execution>
             <id>impl-index</id>
@@ -53,7 +53,6 @@ org.nanonative.nano.core.NanoServices=org.nanonative.nano.core.Nano
             </goals>
             <configuration>
                 <baseClasses>org.nanonative.nano.core.model.Service,org.nanonative.nano.core.NanoServices</baseClasses>
-                <outputDir>META-INF/io/github/absketches/plugin/</outputDir>
                 <outputFile>services.properties</outputFile>
                 <usePrecompiledLists>true</usePrecompiledLists>
                 <verbose>true</verbose>
@@ -83,16 +82,10 @@ index?
 - **Default:** `org.nanonative.nano.core.model.Service`
 - **Example:** `io.github.absketches.sentinel.Notification, org.nanonative.nano.core.model.Service`
 
-### `codegenConcreteClass.outputDir` (String)
-
-Path (relative to `${project.build.outputDirectory}`) of the generated file.
-
-- **Default:** `META-INF/io/github/absketches/plugin/services.properties`
-
 ### `codegenConcreteClass.usePrecompiled` (boolean)
 
-If `true`, when a dependency JAR already contains a properties file at the same `outputDir`, those entries are **merged
-** in. If a JAR’s precomputed file is **missing** some configured bases, that JAR is **scanned** to fill gaps.
+If `true`, when a dependency JAR already contains a properties file at the same location, i.e. **META-INF/io/github/absketches/plugin/**, 
+those entries are **merged** in. If a JAR’s precomputed file is **missing** some configured bases, that JAR is **scanned** to fill gaps.
 
 - **Default:** `true`
 
@@ -105,7 +98,7 @@ Enable extra logging.
 ### `codegenConcreteClass.generateReflectConfig` (boolean)
 
 Merges an existing reflect-config.json or creates a new one to enable native builds.
-The generated `reflect-config.json` will appear under `target/classes/META-INF/native-image/<group>/<artifact>/` if not already present.
+The generated `reflect-config.json` will appear under `META-INF/native-image/<group>/<artifact>/` if not already present.
 
 - **Default:** `true`
 
@@ -116,7 +109,7 @@ The generated `reflect-config.json` will appear under `target/classes/META-INF/n
 1. Parses `baseClasses` and converts to JVM internal format.
 2. Scans your module’s class files and builds a header map.
 3. For each dependency JAR:
-    - If `usePrecompiled=true` and a properties file exists at `outputDir`, it is read and filtered by your configured
+    - If `usePrecompiled=true` and a properties file exists at `META-INF/io/github/absketches/plugin/`, it is read and filtered by your configured
       base types.
     - If the file is absent or does not include all the base types(**incomplete**), the JAR is scanned to populate headers.
 4. For each base type, the plugin unions **precomputed** + **discovered** implementations and writes the final
