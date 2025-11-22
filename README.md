@@ -44,7 +44,7 @@ org.nanonative.nano.core.NanoServices=org.nanonative.nano.core.Nano
 <plugin>
     <groupId>io.github.absketches</groupId>
     <artifactId>codegen-concrete-classes-maven-plugin</artifactId>
-    <version>2.0.0</version>
+    <version>${codegen-mvn-plugin.version}</version>
     <executions>
         <execution>
             <id>impl-index</id>
