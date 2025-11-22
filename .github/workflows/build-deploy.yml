@@ -1,0 +1,181 @@
+name: "Build and Deploy"
+
+on:
+    push:
+        branches:
+            - "**"
+
+concurrency:
+    group: "build-${{ github.event.repository.name }}"
+
+jobs:
+    build:
+        name: "Build with coverage"
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+
+        steps:
+            -   name: Checkout
+                uses: actions/checkout@v4
+
+            -   name: Setup Java 21
+                uses: actions/setup-java@v4
+                with:
+                    java-version: "21"
+                    distribution: "temurin"
+                    cache: "maven"
+
+            -   name: Cache Maven repository
+                uses: actions/cache@v4
+                with:
+                    path: ~/.m2/repository
+                    key: maven-${{ runner.os }}-${{ hashFiles('**/pom.xml') }}
+
+            -   name: Resolve dependencies
+                run: mvn -B -q dependency:go-offline
+
+            -   name: Run tests with coverage
+                run: mvn -B verify
+
+            -   name: JaCoCo coverage summary
+                run: |
+                    if [ ! -f target/site/jacoco/jacoco.xml ]; then
+                      echo "No JaCoCo report found"
+                      exit 0
+                    fi
+                    jacoco_report=$(find . -type f -name "jacoco.xml" | head -n 1)
+                    echo "Jacoco report: ${jacoco_report}"
+                    echo "jacoco_report=${jacoco_report}" >> $GITHUB_OUTPUT
+                    
+                    # Print coverage details from jacoco report
+                    if [ -n "$jacoco_report" ] && [ -f "$jacoco_report" ]; then
+                      # Get the LAST LINE counter (totals)
+                      line=$(
+                        awk '{
+                          s=$0
+                          while (match(s, /<counter[^>]*type="LINE"[^>]*\/>/)) {
+                            last = substr(s, RSTART, RLENGTH)
+                            s = substr(s, RSTART + RLENGTH)
+                          }
+                        } END {
+                          if (last) print last
+                        }' "$jacoco_report")
+                        if [ -n "$line" ]; then
+                          cov=$(printf '%s\n' "$line" | sed -n 's/.*covered="\([0-9][0-9]*\)".*/\1/p')
+                          miss=$(printf '%s\n' "$line" | sed -n 's/.*missed="\([0-9][0-9]*\)".*/\1/p')
+                          cov=${cov:-0}
+                          miss=${miss:-0}
+                          total=$(( cov + miss ))
+                          if [ "$total" -gt 0 ]; then
+                            pc=$(awk -v c="$cov" -v t="$total" 'BEGIN{ printf "%.2f", (100.0*c)/t }')
+                          else
+                            pc=0.00
+                          fi
+                          echo "Total Coverage: ${pc}% (${cov}/${total} lines)"
+                        else
+                          echo "No LINE counter found in ${jacoco_report}."
+                        fi
+                    else
+                      echo "No Jacoco XML report found."
+                    fi
+
+            -   name: Upload JaCoCo HTML report
+                uses: actions/upload-artifact@v4
+                with:
+                    name: jacoco-report-main
+                    path: target/site/jacoco/
+
+    update:
+        # Only bump version on main, and avoid loop from bot commits
+        if: ${{ github.ref == 'refs/heads/main' && github.actor != 'github-actions[bot]' }}
+        name: "Version Update (main only)"
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+
+        outputs:
+            semver: ${{ steps.semver.outputs.semver }}
+
+        steps:
+            -   name: Checkout
+                uses: actions/checkout@v4
+
+            -   name: Setup Java 21
+                uses: actions/setup-java@v4
+                with:
+                    java-version: "21"
+                    distribution: "temurin"
+                    cache: "maven"
+
+            -   name: Cache Maven repository
+                uses: actions/cache@v4
+                with:
+                    path: ~/.m2/repository
+                    key: maven-${{ runner.os }}-${{ hashFiles('**/pom.xml') }}
+
+            -   name: Resolve dependencies
+                run: mvn -B -q dependency:go-offline
+
+            -   id: semver
+                name: Compute semver version
+                run: |
+                    semver=$(date -u '+%Y.%m.%j%H%M')
+                    echo "semver=${semver}" >> "$GITHUB_OUTPUT"
+
+            -   name: Set version and commit
+                run: |
+                    mvn -B -q versions:set -DnewVersion=${{ steps.semver.outputs.semver }} -DgenerateBackupPoms=false
+                    git add **/pom.xml
+                    git config user.name "github-actions[bot]"
+                    git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+                    git commit -m "chore: release ${{ steps.semver.outputs.semver }}"
+                    git push
+
+    deploy:
+        needs: [ update ]
+        if: ${{ needs.update.result == 'success' && github.ref == 'refs/heads/main' }}
+        name: "Deploy to Maven Central (main only)"
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            packages: write
+
+        steps:
+            -   name: Checkout
+                uses: actions/checkout@v4
+
+            -   name: Setup Java 21
+                uses: actions/setup-java@v4
+                with:
+                    java-version: "21"
+                    distribution: "temurin"
+                    cache: "maven"
+
+            -   name: Cache Maven repository
+                uses: actions/cache@v4
+                with:
+                    path: ~/.m2/repository
+                    key: maven-${{ runner.os }}-${{ hashFiles('**/pom.xml') }}
+
+            -   name: Create settings.xml
+                run: |
+                    mkdir -p "$HOME/.m2"
+                    cat > "$HOME/.m2/settings.xml" <<EOF
+                    <settings>
+                      <servers>
+                        <server>
+                          <id>central</id>
+                          <username>${CENTRAL_USERNAME}</username>
+                          <password>${CENTRAL_PASSWORD}</password>
+                        </server>
+                      </servers>
+                    </settings>
+                    EOF
+                env:
+                    CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+                    CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
+
+            -   name: Deploy (release profile)
+                run: mvn -B -P release deploy -s "$HOME/.m2/settings.xml"
+
