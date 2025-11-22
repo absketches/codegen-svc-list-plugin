@@ -7,10 +7,8 @@ import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.lang.reflect.Method;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -18,7 +16,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CodegenConcreteClassPluginTest {
 
@@ -83,7 +82,6 @@ class CodegenConcreteClassPluginTest {
 
     @Test
     void writePropertiesSkipsWhenContentUnchanged() throws Exception {
-        TestUtils.setField(plugin, "outputDir", "META-INF/services/");
         TestUtils.setField(plugin, "outputFile", "services.properties");
 
         Method writeProperties = CodegenConcreteClassPlugin.class.getDeclaredMethod("writeProperties", Path.class, Map.class);
@@ -94,7 +92,7 @@ class CodegenConcreteClassPluginTest {
         result.put("com/example/Base", new TreeSet<>(Set.of("com/example/Impl")));
 
         writeProperties.invoke(plugin, classes, result);
-        Path outFile = classes.resolve("META-INF/services/services.properties");
+        Path outFile = classes.resolve(CodegenConcreteClassPlugin.outputDir + "services.properties");
         String content = Files.readString(outFile);
 
         writeProperties.invoke(plugin, classes, result);

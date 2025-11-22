@@ -68,9 +68,6 @@ public final class CodegenConcreteClassPlugin extends AbstractMojo {
     @Parameter(property = "codegenConcreteClass.baseClasses", defaultValue = "org.nanonative.nano.core.model.Service")
     private String baseClasses;
 
-    @Parameter(property = "codegenConcreteClass.outputDir", defaultValue = "META-INF/io/github/absketches/plugin/")
-    private String outputDir;
-
     @Parameter(property = "codegenConcreteClass.outputFile", defaultValue = "services.properties")
     private String outputFile;
 
@@ -83,6 +80,7 @@ public final class CodegenConcreteClassPlugin extends AbstractMojo {
     @Parameter(property = "codegenConcreteClass.generateReflectConfig", defaultValue = "true")
     private boolean generateReflectConfig;
 
+    static final String outputDir = "META-INF/io/github/absketches/plugin/";
 
     @Override
     public void execute() throws MojoExecutionException {
@@ -156,11 +154,7 @@ public final class CodegenConcreteClassPlugin extends AbstractMojo {
     private void prepareToScanJar(final File jar, final Map<String, ClassHeader> out, final Map<String, Set<String>> precomputed, final List<String> allowedBases) throws IOException {
         try (JarFile jf = new JarFile(jar)) {
             if (usePrecompiledLists && null != allowedBases && !allowedBases.isEmpty()) {
-                String dirPrefix = outputDir;
-                if (!dirPrefix.endsWith("/"))
-                    dirPrefix = dirPrefix + "/";
-
-                if (readAllPropertiesFromJarDir(jf, dirPrefix, precomputed, new HashSet<>(allowedBases))) {
+                if (readAllPropertiesFromJarDir(jf, outputDir, precomputed, new HashSet<>(allowedBases))) {
                     log("[codegen-svc-list] using precomputed properties from " + jar.getName(), 'I');
                     return;
                 }
