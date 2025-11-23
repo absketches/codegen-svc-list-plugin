@@ -30,7 +30,7 @@ class ClassFileUtilsTest {
         assertEquals(List.of(), ClassFileUtils.parseBaseClasses(null));
         assertEquals(List.of(), ClassFileUtils.parseBaseClasses("   "));
         assertEquals(List.of("com/example/Service", "java/lang/Runnable"),
-            ClassFileUtils.parseBaseClasses(" com.example.Service, ,java.lang.Runnable  "));
+                ClassFileUtils.parseBaseClasses(" com.example.Service, ,java.lang.Runnable  "));
     }
 
     @Test
@@ -126,5 +126,56 @@ class ClassFileUtilsTest {
         // Missing base should return false
         boolean missing = ClassFileUtils.readAllPropertiesFromJarDir(new java.util.jar.JarFile(jarFile.toFile()), dirPrefix, precomputed, Set.of("unknown/Base"));
         assertFalse(missing);
+    }
+
+    @Test
+    void hierarchyReturnsFalseWhenHeaderMissingOrCached() {
+        Map<String, ClassHeader> headers = new HashMap<>();
+        headers.put("com/example/Child", new ClassHeader(0, "com/example/Missing"));
+
+        Map<String, Boolean> cache = new HashMap<>();
+        assertFalse(ClassFileUtils.isSubclassOfBase("com/example/Child", headers, cache, "com/example/Base"));
+        assertEquals(Boolean.FALSE, cache.get("com/example/Child"));
+
+        // Populate cache for the missing superclass and ensure traversal short-circuits
+        cache.put("com/example/Missing", false);
+        assertFalse(ClassFileUtils.isSubclassOfBase("com/example/Child", headers, cache, "com/example/Base"));
+    }
+
+    @Test
+    void readAllPropertiesIgnoresNonMatchingEntriesAndBlankValues() throws Exception {
+        Path tmpDir = Files.createTempDirectory("jar-filter");
+        Path jarFile = tmpDir.resolve("filter.jar");
+        String dirPrefix = "META-INF/io/github/absketches/plugin/";
+
+        TestUtils.createJar(jarFile, jos -> {
+            try {
+                jos.putNextEntry(new java.util.jar.JarEntry("META-INF/"));
+                jos.closeEntry();
+                TestUtils.addEntry(jos, dirPrefix + "ignored.txt", "com.example.Base=impl.One".getBytes());
+                TestUtils.addEntry(jos, "META-INF/other/services.properties", "com.example.Base=impl.One".getBytes());
+                TestUtils.addEntry(jos, dirPrefix + "services.properties", "com.example.Base=".getBytes());
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        Map<String, Set<String>> precomputed = new HashMap<>();
+        Set<String> allowed = Set.of("com/example/Base", "com/example/Missing");
+        boolean matched = ClassFileUtils.readAllPropertiesFromJarDir(new java.util.jar.JarFile(jarFile.toFile()), dirPrefix, precomputed, allowed);
+
+        assertFalse(matched, "Missing allowed base should report false");
+        assertTrue(precomputed.getOrDefault("com/example/Base", Set.of()).isEmpty());
+    }
+
+    @Test
+    void mergeJsonPreservesObjectsWithoutName() {
+        Set<String> classes = Set.of("com.example.Added");
+        String existing = "[{\"foo\":\"bar\"}]";
+
+        String merged = ClassFileUtils.mergeJson(classes, existing);
+
+        assertTrue(merged.contains("\"foo\":\"bar\""));
+        assertTrue(merged.contains("com.example.Added"));
     }
 }
