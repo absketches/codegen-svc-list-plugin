@@ -6,7 +6,7 @@
 
     <groupId>io.github.absketches</groupId>
     <artifactId>codegen-concrete-classes-maven-plugin</artifactId>
-    <version>2025.11.3262134</version>
+    <version>2025.11.3271634</version>
     <packaging>maven-plugin</packaging>
 
     <name>graal-native-support-maven-plugin</name>

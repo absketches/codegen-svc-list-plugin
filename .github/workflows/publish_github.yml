@@ -28,12 +28,13 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           server-id: github
-          settings-path: ~/.m2
+          server-username: GITHUB_ACTOR
+          server-password: GITHUB_TOKEN
 
       - name: Build with Maven
         run: mvn -B package --file pom.xml
 
       - name: Publish to GitHub Packages (Maven)
-        run: mvn -B deploy -s "$HOME/.m2/settings.xml"
+        run: mvn -B deploy
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
