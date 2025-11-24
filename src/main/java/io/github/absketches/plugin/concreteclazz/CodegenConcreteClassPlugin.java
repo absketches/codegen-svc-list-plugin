@@ -65,7 +65,7 @@ public final class CodegenConcreteClassPlugin extends AbstractMojo {
     /**
      * The base Classes can be set via -DcodegenConcreteClass.baseClasses=org.nanonative.nano.core.model.Service,...
      */
-    @Parameter(property = "codegenConcreteClass.baseClasses", defaultValue = "org.nanonative.nano.core.model.Service")
+    @Parameter(property = "codegenConcreteClass.baseClasses", defaultValue = " ")
     private String baseClasses;
 
     @Parameter(property = "codegenConcreteClass.outputFile", defaultValue = "services.properties")
@@ -83,7 +83,7 @@ public final class CodegenConcreteClassPlugin extends AbstractMojo {
     /**
      * The reflected Classes can be set via -DcodegenConcreteClass.reflectedClasses=org.abc.impl1,...
      */
-    @Parameter(property = "codegenConcreteClass.reflectedClasses", defaultValue = "")
+    @Parameter(property = "codegenConcreteClass.reflectedClasses", defaultValue = " ")
     private String reflectedClasses;
 
     static final String outputDir = "META-INF/io/github/absketches/plugin/";
@@ -101,25 +101,27 @@ public final class CodegenConcreteClassPlugin extends AbstractMojo {
                 return;
             }
 
-            // Build allowed base types
-            final List<String> requestedClasses = parseBaseClasses(baseClasses);
+            if (!baseClasses.isBlank()) {
+                // Build allowed base types
+                final List<String> requestedClasses = parseBaseClasses(baseClasses);
 
-            // Scan own classes
-            scanDirectory(classesDir, headers);
+                // Scan own classes
+                scanDirectory(classesDir, headers);
 
-            // Scan dependencies (use precomputed properties when available) - or always scan using property usePrecompiled=false
-            for (Artifact artifact : project.getArtifacts()) {
-                processArtifact(artifact, headers, precompiledMap, requestedClasses);
+                // Scan dependencies (use precomputed properties when available) - or always scan using property usePrecompiled=false
+                for (Artifact artifact : project.getArtifacts()) {
+                    processArtifact(artifact, headers, precompiledMap, requestedClasses);
+                }
+                log("[codegen-svc-list] headers size = " + headers.size(), 'I');
+
+                // For each configured base type, collect implementations
+                for (String base : requestedClasses) {
+                    final Map<String, Boolean> cache = new HashMap<>(); // Cache already iterated paths
+                    gatherConcreteClasses(base, headers, result, cache, precompiledMap);
+                }
+                writeProperties(classesDir, result);
             }
-            log("[codegen-svc-list] headers size = " + headers.size(), 'I');
 
-            // For each configured base type, collect implementations
-            for (String base : requestedClasses) {
-                final Map<String, Boolean> cache = new HashMap<>(); // Cache already iterated paths
-                gatherConcreteClasses(base, headers, result, cache, precompiledMap);
-            }
-
-            writeProperties(classesDir, result);
             if (generateReflectConfig) {
                 final List<String> requestedForReflection = parseBaseClasses(reflectedClasses);
                 final Set<String> reflectedClassSet = result.values().stream().flatMap(Set::stream).collect(Collectors.toCollection(LinkedHashSet::new));

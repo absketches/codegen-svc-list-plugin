@@ -102,6 +102,13 @@ The generated `reflect-config.json` will appear under `META-INF/native-image/<gr
 
 - **Default:** `true`
 
+### `codegenConcreteClass.reflectedClasses` (String)
+
+Comma-separated list of concrete classes that should be **forced into** the generated `reflect-config.json`.
+The plugin will still create or merge `reflect-config.json` when this list is non-empty, even if no implementations were found for the configured `baseClasses`.
+
+- **Default:** _empty_
+
 ---
 
 ## How it works

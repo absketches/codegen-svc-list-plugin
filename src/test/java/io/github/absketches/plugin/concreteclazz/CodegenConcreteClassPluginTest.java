@@ -199,6 +199,7 @@ class CodegenConcreteClassPluginTest {
 
     @Test
     void executeWrapsExceptionsFromScanning() throws Exception {
+        TestUtils.setField(plugin, "baseClasses", "org.nanonative.nano.core.model.Service");
         TestLog log = new TestLog();
         plugin.setLog(log);
 
@@ -253,6 +254,28 @@ class CodegenConcreteClassPluginTest {
         assertTrue(merged.contains("com.example.Existing"));
         assertTrue(merged.contains("com.example.New"));
         assertTrue(merged.contains("allDeclaredConstructors\":true"));
+    }
+
+    @Test
+    void executeWritesReflectConfigWhenOnlyReflectedClassesProvided() throws Exception {
+        TestUtils.setField(plugin, "generateReflectConfig", true);
+        TestUtils.setField(plugin, "baseClasses", "com.example.Base");
+        TestUtils.setField(plugin, "reflectedClasses", "com.example.ManualOne,com.example.ManualTwo");
+        project.setArtifacts(new HashSet<>());
+
+        plugin.execute();
+
+        Path classes = Path.of(project.getBuild().getOutputDirectory());
+        Path reflectPath = classes
+                .resolve("META-INF/native-image")
+                .resolve(project.getGroupId())
+                .resolve(project.getArtifactId())
+                .resolve("reflect-config.json");
+
+        assertTrue(Files.exists(reflectPath));
+        String json = Files.readString(reflectPath);
+        assertTrue(json.contains("com.example.ManualOne"));
+        assertTrue(json.contains("com.example.ManualTwo"));
     }
 
     @Test
