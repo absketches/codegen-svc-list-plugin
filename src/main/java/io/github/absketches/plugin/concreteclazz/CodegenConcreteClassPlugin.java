@@ -80,6 +80,12 @@ public final class CodegenConcreteClassPlugin extends AbstractMojo {
     @Parameter(property = "codegenConcreteClass.generateReflectConfig", defaultValue = "true")
     private boolean generateReflectConfig;
 
+    /**
+     * The reflected Classes can be set via -DcodegenConcreteClass.reflectedClasses=org.abc.impl1,...
+     */
+    @Parameter(property = "codegenConcreteClass.reflectedClasses", defaultValue = "")
+    private String reflectedClasses;
+
     static final String outputDir = "META-INF/io/github/absketches/plugin/";
 
     @Override
@@ -115,7 +121,10 @@ public final class CodegenConcreteClassPlugin extends AbstractMojo {
 
             writeProperties(classesDir, result);
             if (generateReflectConfig) {
-                writeReflectConfig(result.values().stream().flatMap(Set::stream).collect(Collectors.toCollection(LinkedHashSet::new)), classesDir);
+                final List<String> requestedForReflection = parseBaseClasses(reflectedClasses);
+                final Set<String> reflectedClassSet = result.values().stream().flatMap(Set::stream).collect(Collectors.toCollection(LinkedHashSet::new));
+                reflectedClassSet.addAll(requestedForReflection.stream().map(ClassFileUtils::toDotted).collect(Collectors.toSet()));
+                writeReflectConfig(reflectedClassSet, classesDir);
             } else {
                 log("[codegen-svc-list] reflect-config.json generation disabled", 'I');
             }
