@@ -1,11 +1,16 @@
 # Class Implementation Index Maven Plugin
 
-This plugin enables developers to make their applications **GraalVM Native Image compatible**. It automatically generates the `reflect-config.json` file required by GraalVM to manage reflection in a controlled and predictable way, improving startup performance and reducing binary size.
-By limiting reflection to only the explicitly generated and necessary classes, the plugin ensures optimized runtime behavior with minimal overhead.
+This plugin enables developers to make their applications **GraalVM Native Image compatible**. It automatically
+generates the `reflect-config.json` file required by GraalVM to manage reflection in a controlled and predictable way,
+improving startup performance and reducing binary size.
+By limiting reflection to only the explicitly generated and necessary classes, the plugin ensures optimized runtime
+behavior with minimal overhead.
 
-This also generate a **`.properties`** index of all **concrete implementations** of one or more base types (abstract classes) found in **your project and its dependencies** which are candidates for reflection.
+This also generate a **`.properties`** index of all **concrete implementations** of one or more base types (abstract
+classes) found in **your project and its dependencies** which are candidates for reflection.
 
 It writes to:
+
 ```
 META-INF/io/github/absketches/plugin/services.properties
 ```
@@ -79,13 +84,15 @@ mvn codegen-concrete-classes:generate
 Comma‑separated list of abstract base types (abstract classes) whose concrete implementations you want to
 index?
 
-- **Default:** `org.nanonative.nano.core.model.Service`
+- **Default:** _empty_ (must be provided)
 - **Example:** `io.github.absketches.sentinel.Notification, org.nanonative.nano.core.model.Service`
 
 ### `codegenConcreteClass.usePrecompiled` (boolean)
 
-If `true`, when a dependency JAR already contains a properties file at the same location, i.e. **META-INF/io/github/absketches/plugin/**, 
-those entries are **merged** in. If a JAR’s precomputed file is **missing** some configured bases, that JAR is **scanned** to fill gaps.
+If `true`, when a dependency JAR already contains a properties file at the same location, i.e. *
+*META-INF/io/github/absketches/plugin/**,
+those entries are **merged** in. If a JAR’s precomputed file is **missing** some configured bases, that JAR is **scanned
+** to fill gaps.
 
 - **Default:** `true`
 
@@ -98,14 +105,16 @@ Enable extra logging.
 ### `codegenConcreteClass.generateReflectConfig` (boolean)
 
 Merges an existing reflect-config.json or creates a new one to enable native builds.
-The generated `reflect-config.json` will appear under `META-INF/native-image/<group>/<artifact>/` if not already present.
+The generated `reflect-config.json` will appear under `META-INF/native-image/<group>/<artifact>/` if not already
+present.
 
 - **Default:** `true`
 
 ### `codegenConcreteClass.reflectedClasses` (String)
 
 Comma-separated list of concrete classes that should be **forced into** the generated `reflect-config.json`.
-The plugin will still create or merge `reflect-config.json` when this list is non-empty, even if no implementations were found for the configured `baseClasses`.
+The plugin will still create or merge `reflect-config.json` when this list is non-empty, even if no implementations were
+found for the configured `baseClasses`.
 
 - **Default:** _empty_
 
@@ -116,9 +125,11 @@ The plugin will still create or merge `reflect-config.json` when this list is no
 1. Parses `baseClasses` and converts to JVM internal format.
 2. Scans your module’s class files and builds a header map.
 3. For each dependency JAR:
-    - If `usePrecompiled=true` and a properties file exists at `META-INF/io/github/absketches/plugin/`, it is read and filtered by your configured
+    - If `usePrecompiled=true` and a properties file exists at `META-INF/io/github/absketches/plugin/`, it is read and
+      filtered by your configured
       base types.
-    - If the file is absent or does not include all the base types(**incomplete**), the JAR is scanned to populate headers.
+    - If the file is absent or does not include all the base types(**incomplete**), the JAR is scanned to populate
+      headers.
 4. For each base type, the plugin unions **precomputed** + **discovered** implementations and writes the final
    properties file atomically.
 
@@ -148,8 +159,13 @@ mvnDebug process-classes
 
 ## Contract
 
+- **must configure** at least one base class to generate services metadata.
 - Only **concrete** subclasses of configured super classes are listed.
 - Scans **compile + runtime** classpath.
+- reflect-config.json generation is enabled by default.
+- can use it solely for generating `reflect-config.json` without using the other feature by setting `reflectedClasses`
+  and not configuring `baseClasses`.
+- both features can be used independently, and they also work together without conflict
 
 ---
 
