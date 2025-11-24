@@ -5,7 +5,7 @@ Closes #000
   - [ ] Bug fix (non-breaking change which fixes an issue)
   - [ ] New feature (non-breaking change which adds functionality)
   - [ ] Breaking change (fix or feature that would cause existing functionality to change)
-  - [ ] Non production change (Pipeline changes)
+  - [ ] Non production change (Pipeline changes, etc)
 
 ## Motivation
 > Why is this change required? What problem does it solve?
