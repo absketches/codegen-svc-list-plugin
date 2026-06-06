@@ -1,9 +1,7 @@
 name: "Build & Test"
 
 on:
-    push:
-        branches:
-            - "**"
+    workflow_dispatch:
 
 concurrency:
     group: "build-${{ github.event.repository.name }}"
