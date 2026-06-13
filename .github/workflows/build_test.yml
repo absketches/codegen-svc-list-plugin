@@ -84,5 +84,5 @@ jobs:
             - name: Upload JaCoCo HTML report
               uses: actions/upload-artifact@v6
               with:
-                  name: jacoco-report-${{ github.ref_name }}
+                  name: jacoco-report-${{ github.sha }}
                   path: target/site/jacoco/
