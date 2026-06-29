@@ -13,7 +13,7 @@ jobs:
 
         steps:
             - name: Checkout main
-              uses: actions/checkout@v6
+              uses: actions/checkout@v7
               with:
                   ref: main
                   fetch-depth: 0
@@ -26,7 +26,7 @@ jobs:
                   cache: "maven"
 
             - name: Cache Maven repository
-              uses: actions/cache@v5
+              uses: actions/cache@v6
               with:
                   path: ~/.m2/repository
                   key: maven-${{ runner.os }}-${{ hashFiles('**/pom.xml') }}
