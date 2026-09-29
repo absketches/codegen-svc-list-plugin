@@ -10,6 +10,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.Collection;
 import java.util.Enumeration;
 import java.util.List;
 import java.util.ArrayList;
@@ -22,7 +23,8 @@ import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.stream.Collectors;
 
-import static berlin.yuna.typemap.logic.JsonDecoder.jsonListOf;
+import static berlin.yuna.typemap.logic.JsonDecoder.listOf;
+import static berlin.yuna.typemap.logic.JsonDecoder.mapOf;
 
 final class ClassFileUtils {
     private static final String BASE_JAVA_CLASS = "java/lang/Object";
@@ -131,8 +133,7 @@ final class ClassFileUtils {
             String key = toDotted(entry.getKey());
             String value = entry.getValue().stream()
                 .map(ClassFileUtils::toDotted)
-                .reduce((a, b) -> a + "," + b)
-                .orElse("");
+                .collect(Collectors.joining(","));
             sb.append(key).append("=").append(value).append("\n");
         }
         return String.valueOf(sb);
@@ -142,16 +143,32 @@ final class ClassFileUtils {
      * To create/modify reflect-config JSON file, we will merge existing flags
      */
     static String mergeJson(final Set<String> classNames, final String existingJson) {
-        final TypeList existingJsonArr = jsonListOf(existingJson);
-        final Set<String> nameSet = classNames.stream().map(ClassFileUtils::toDotted).collect(Collectors.toSet());
+        return mergeReflectionArray(classNames, listOf(existingJson), "name").toJson();
+    }
+
+    /**
+     * To create/modify reachability-metadata JSON file, we merge generated reflection entries into the top-level
+     * "reflection" section while preserving other sections such as "resources".
+     */
+    static String mergeReachabilityMetadataJson(final Set<String> classNames, final String existingJson) {
+        final LinkedTypeMap metadata = mapOf(existingJson);
+        final TypeList existingReflection = typeListOf(metadata.get("reflection"));
+        metadata.put("reflection", mergeReflectionArray(classNames, existingReflection, "type"));
+        return metadata.toJson();
+    }
+
+    private static TypeList mergeReflectionArray(final Set<String> classNames, final TypeList existingJsonArr, final String typeFieldName) {
+        final Set<String> nameSet = classNames.stream()
+            .map(ClassFileUtils::toDotted)
+            .collect(Collectors.toCollection(TreeSet::new));
         final TypeList resultJsonArr = new TypeList();
 
         // Keep existing jsonObjects (if any), in their current order
         for (Object json : existingJsonArr) {
             TypeInfo<?> jsonObj = TypeConverter.convertObj(json, TypeInfo.class);
-            if (jsonObj.isPresent("name")) {
-                String name = jsonObj.get(String.class, "name");
-                if (nameSet.contains(name)) {
+            if (jsonObj.isPresent(typeFieldName)) {
+                String name = stringValueOf(jsonObj, typeFieldName);
+                if (name != null && nameSet.contains(name)) {
                     jsonObj.setPath("allDeclaredConstructors", true);
                     nameSet.remove(name);
                 }
@@ -161,10 +178,30 @@ final class ClassFileUtils {
 
         for (String name : nameSet) {
             TypeInfo<?> jsonObj = new LinkedTypeMap();
-            jsonObj.setPathR("name", name).setPath("allDeclaredConstructors", true);
+            jsonObj.setPathR(typeFieldName, name).setPath("allDeclaredConstructors", true);
             resultJsonArr.add(jsonObj);
         }
-        return resultJsonArr.toJson();
+        return resultJsonArr;
+    }
+
+    private static String stringValueOf(final TypeInfo<?> jsonObj, final String key) {
+        if (jsonObj instanceof Map<?, ?> map && map.get(key) instanceof String value) {
+            return value;
+        }
+        return null;
+    }
+
+    private static TypeList typeListOf(final Object value) {
+        if (value instanceof TypeList typeList) {
+            return typeList;
+        }
+        if (value instanceof Collection<?> collection) {
+            return new TypeList(collection);
+        }
+        if (value != null) {
+            return new TypeList(List.of(value));
+        }
+        return new TypeList();
     }
 
     private static void processEachJar(final Set<String> matched, final Properties props, final Set<String> allowedBases, final Map<String, Set<String>> precomputed) {

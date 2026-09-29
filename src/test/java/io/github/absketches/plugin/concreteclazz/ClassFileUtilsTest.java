@@ -1,5 +1,7 @@
 package io.github.absketches.plugin.concreteclazz;
 
+import berlin.yuna.typemap.model.LinkedTypeMap;
+import berlin.yuna.typemap.model.TypeList;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -12,6 +14,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 
+import static berlin.yuna.typemap.logic.JsonDecoder.listOf;
+import static berlin.yuna.typemap.logic.JsonDecoder.mapOf;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -94,11 +98,72 @@ class ClassFileUtilsTest {
     }
 
     @Test
+    void mergeJsonUpdatesExistingEntryWithoutDuplicatingIt() {
+        Set<String> classes = Set.of("com.example.Existing", "com.example.NewOne");
+        String existing = "[{\"name\":\"com.example.Existing\",\"allDeclaredConstructors\":false,\"methods\":[{\"name\":\"alreadyThere\",\"parameterTypes\":[]}]},{\"name\":\"com.example.Other\"}]";
+
+        TypeList merged = listOf(ClassFileUtils.mergeJson(classes, existing));
+
+        assertEquals(3, merged.size());
+        Map<?, ?> existingEntry = singleEntryWithStringField(merged, "name", "com.example.Existing");
+        assertEquals(Boolean.TRUE, existingEntry.get("allDeclaredConstructors"));
+        assertTrue(existingEntry.get("methods") instanceof TypeList);
+        singleEntryWithStringField(merged, "name", "com.example.NewOne");
+        singleEntryWithStringField(merged, "name", "com.example.Other");
+    }
+
+    @Test
     void mergesJsonWhenExistingContentMissing() {
         Set<String> classes = Set.of("com.example.Solo");
         String merged = ClassFileUtils.mergeJson(classes, null);
 
         assertTrue(merged.contains("com.example.Solo"));
+        assertTrue(merged.contains("allDeclaredConstructors\":true"));
+    }
+
+    @Test
+    void mergesReachabilityMetadataJsonWithExistingSections() {
+        Set<String> classes = Set.of("com.example.Existing", "com.example.NewOne");
+        String existing = "{\"resources\":[{\"glob\":\"META-INF/**/*.properties\"}],\"reflection\":[{\"type\":\"com.example.Existing\",\"allDeclaredConstructors\":false},{\"type\":{\"proxy\":[\"com.example.Proxy\"]}}]}";
+
+        String merged = ClassFileUtils.mergeReachabilityMetadataJson(classes, existing);
+
+        assertTrue(merged.contains("\"resources\""));
+        assertTrue(merged.contains("\"glob\":\"META-INF/**/*.properties\""));
+        assertTrue(merged.contains("\"reflection\""));
+        assertTrue(merged.contains("\"type\":\"com.example.Existing\""));
+        assertTrue(merged.contains("\"type\":\"com.example.NewOne\""));
+        assertTrue(merged.contains("allDeclaredConstructors\":true"));
+        assertTrue(merged.contains("\"proxy\""));
+    }
+
+    @Test
+    void mergeReachabilityMetadataJsonUpdatesExistingEntryWithoutDuplicatingIt() {
+        Set<String> classes = Set.of("com.example.Existing", "com.example.NewOne");
+        String existing = "{\"resources\":[{\"glob\":\"META-INF/**/*.properties\"}],\"reflection\":[{\"type\":\"com.example.Existing\",\"allDeclaredConstructors\":false,\"methods\":[{\"name\":\"alreadyThere\",\"parameterTypes\":[]}]},{\"type\":{\"proxy\":[\"com.example.Proxy\"]}}]}";
+
+        LinkedTypeMap metadata = mapOf(ClassFileUtils.mergeReachabilityMetadataJson(classes, existing));
+
+        TypeList resources = typeListAt(metadata, "resources");
+        assertEquals(1, resources.size());
+        TypeList reflection = typeListAt(metadata, "reflection");
+        assertEquals(3, reflection.size());
+
+        Map<?, ?> existingEntry = singleEntryWithStringField(reflection, "type", "com.example.Existing");
+        assertEquals(Boolean.TRUE, existingEntry.get("allDeclaredConstructors"));
+        assertTrue(existingEntry.get("methods") instanceof TypeList);
+        singleEntryWithStringField(reflection, "type", "com.example.NewOne");
+        assertEquals(1, reflection.stream().filter(entry -> entry instanceof Map<?, ?> map && map.get("type") instanceof Map<?, ?>).count());
+    }
+
+    @Test
+    void mergesReachabilityMetadataJsonWhenExistingContentMissing() {
+        Set<String> classes = Set.of("com/example/Solo");
+
+        String merged = ClassFileUtils.mergeReachabilityMetadataJson(classes, null);
+
+        assertTrue(merged.contains("\"reflection\""));
+        assertTrue(merged.contains("\"type\":\"com.example.Solo\""));
         assertTrue(merged.contains("allDeclaredConstructors\":true"));
     }
 
@@ -177,5 +242,24 @@ class ClassFileUtilsTest {
 
         assertTrue(merged.contains("\"foo\":\"bar\""));
         assertTrue(merged.contains("com.example.Added"));
+    }
+
+    private static TypeList typeListAt(final LinkedTypeMap map, final String key) {
+        Object value = map.get(key);
+        assertTrue(value instanceof TypeList, () -> "Expected '" + key + "' to be a JSON array but was " + value);
+        return (TypeList) value;
+    }
+
+    private static Map<?, ?> singleEntryWithStringField(final TypeList entries, final String fieldName, final String expectedValue) {
+        Map<?, ?> match = null;
+        int matches = 0;
+        for (Object entry : entries) {
+            if (entry instanceof Map<?, ?> map && expectedValue.equals(map.get(fieldName))) {
+                match = map;
+                matches++;
+            }
+        }
+        assertEquals(1, matches, () -> "Expected exactly one '" + fieldName + "' entry for " + expectedValue + " in " + entries.toJson());
+        return match;
     }
 }
