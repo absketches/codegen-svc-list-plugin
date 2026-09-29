@@ -1,18 +1,21 @@
 # Class Implementation Index Maven Plugin
 
 This plugin enables developers to make their applications **GraalVM Native Image compatible**. It automatically
-generates the `reflect-config.json` file required by GraalVM to manage reflection in a controlled and predictable way,
-improving startup performance and reducing binary size.
+generates GraalVM reachability metadata required by Native Image to manage reflection in a controlled and predictable
+way, improving startup performance and reducing binary size. By default, it writes both the current
+`reachability-metadata.json` file and the legacy `reflect-config.json` file for gradual migration.
 By limiting reflection to only the explicitly generated and necessary classes, the plugin ensures optimized runtime
 behavior with minimal overhead.
 
-This also generate a **`.properties`** index of all **concrete implementations** of one or more base types (abstract
+This also generates a **`.properties`** index of all **concrete implementations** of one or more base types (abstract
 classes) found in **your project and its dependencies** which are candidates for reflection.
 
 It writes to:
 
 ```
 META-INF/io/github/absketches/plugin/services.properties
+META-INF/native-image/<group>/<artifact>/reachability-metadata.json
+META-INF/native-image/<group>/<artifact>/reflect-config.json
 ```
 
 Each **key** is a dotted base class; each **value** is a comma‑separated list of dotted implementation classes.
@@ -60,6 +63,8 @@ org.nanonative.nano.core.NanoServices=org.nanonative.nano.core.Nano
                 <baseClasses>org.nanonative.nano.core.model.Service,org.nanonative.nano.core.NanoServices</baseClasses>
                 <outputFile>services.properties</outputFile>
                 <usePrecompiledLists>true</usePrecompiledLists>
+                <generateReachabilityMetadata>true</generateReachabilityMetadata>
+                <generateReflectConfig>false</generateReflectConfig>
                 <verbose>true</verbose>
             </configuration>
         </execution>
@@ -87,7 +92,7 @@ index?
 - **Default:** _empty_ (must be provided)
 - **Example:** `io.github.absketches.sentinel.Notification, org.nanonative.nano.core.model.Service`
 
-### `codegenConcreteClass.usePrecompiled` (boolean)
+### `codegenConcreteClass.usePrecompiledLists` (boolean)
 
 If `true`, when a dependency JAR already contains a properties file at the same location, i.e. *
 *META-INF/io/github/absketches/plugin/**,
@@ -102,19 +107,26 @@ Enable extra logging.
 
 - **Default:** `false`
 
+### `codegenConcreteClass.generateReachabilityMetadata` (boolean)
+
+Merges an existing `reachability-metadata.json` or creates a new one to enable modern GraalVM Native Image builds.
+Generated reflection metadata is written under the top-level `reflection` section, and existing sections such as
+`resources` are preserved.
+
+- **Default:** `true`
+
 ### `codegenConcreteClass.generateReflectConfig` (boolean)
 
-Merges an existing reflect-config.json or creates a new one to enable native builds.
-The generated `reflect-config.json` will appear under `META-INF/native-image/<group>/<artifact>/` if not already
-present.
+Merges an existing `reflect-config.json` or creates a new one for older GraalVM Native Image builds and projects that
+are still migrating metadata gradually.
 
 - **Default:** `true`
 
 ### `codegenConcreteClass.reflectedClasses` (String)
 
-Comma-separated list of concrete classes that should be **forced into** the generated `reflect-config.json`.
-The plugin will still create or merge `reflect-config.json` when this list is non-empty, even if no implementations were
-found for the configured `baseClasses`.
+Comma-separated list of concrete classes that should be **forced into** the generated Native Image metadata. The plugin
+will still create or merge metadata when this list is non-empty, even if no implementations were found for the configured
+`baseClasses`.
 
 - **Default:** _empty_
 
@@ -125,7 +137,7 @@ found for the configured `baseClasses`.
 1. Parses `baseClasses` and converts to JVM internal format.
 2. Scans your module’s class files and builds a header map.
 3. For each dependency JAR:
-    - If `usePrecompiled=true` and a properties file exists at `META-INF/io/github/absketches/plugin/`, it is read and
+    - If `usePrecompiledLists=true` and a properties file exists at `META-INF/io/github/absketches/plugin/`, it is read and
       filtered by your configured
       base types.
     - If the file is absent or does not include all the base types(**incomplete**), the JAR is scanned to populate
@@ -162,10 +174,9 @@ mvnDebug process-classes
 - **must configure** at least one base class to generate services metadata.
 - Only **concrete** subclasses of configured super classes are listed.
 - Scans **compile + runtime** classpath.
-- reflect-config.json generation is enabled by default.
-- can use it solely for generating `reflect-config.json` without using the other feature by setting `reflectedClasses`
+- `reachability-metadata.json` and legacy `reflect-config.json` generation are enabled by default.
+- can use it solely for generating Native Image metadata without using the other feature by setting `reflectedClasses`
   and not configuring `baseClasses`.
 - both features can be used independently, and they also work together without conflict
 
 ---
-

@@ -257,7 +257,33 @@ class CodegenConcreteClassPluginTest {
     }
 
     @Test
-    void executeWritesReflectConfigWhenOnlyReflectedClassesProvided() throws Exception {
+    void writeReachabilityMetadataMergesExistingContent() throws Exception {
+        Method writeReachabilityMetadata = CodegenConcreteClassPlugin.class.getDeclaredMethod("writeReachabilityMetadata", Set.class, Path.class);
+        writeReachabilityMetadata.setAccessible(true);
+
+        Path classes = Path.of(project.getBuild().getOutputDirectory());
+        Path reachabilityPath = classes
+                .resolve("META-INF/native-image")
+                .resolve(project.getGroupId())
+                .resolve(project.getArtifactId())
+                .resolve("reachability-metadata.json");
+
+        Files.createDirectories(reachabilityPath.getParent());
+        Files.writeString(reachabilityPath, "{\"resources\":[{\"glob\":\"META-INF/**/*.properties\"}],\"reflection\":[{\"type\":\"com.example.Existing\",\"allDeclaredConstructors\":false}]}");
+
+        Set<String> classesToWrite = Set.of("com.example.Existing", "com.example.New");
+        writeReachabilityMetadata.invoke(plugin, classesToWrite, classes);
+
+        String merged = Files.readString(reachabilityPath);
+        assertTrue(merged.contains("\"resources\""));
+        assertTrue(merged.contains("\"glob\":\"META-INF/**/*.properties\""));
+        assertTrue(merged.contains("\"type\":\"com.example.Existing\""));
+        assertTrue(merged.contains("\"type\":\"com.example.New\""));
+        assertTrue(merged.contains("allDeclaredConstructors\":true"));
+    }
+
+    @Test
+    void executeWritesNativeImageMetadataWhenOnlyReflectedClassesProvided() throws Exception {
         TestUtils.setField(plugin, "generateReflectConfig", true);
         TestUtils.setField(plugin, "baseClasses", "com.example.Base");
         TestUtils.setField(plugin, "reflectedClasses", "com.example.ManualOne,com.example.ManualTwo");
@@ -276,6 +302,68 @@ class CodegenConcreteClassPluginTest {
         String json = Files.readString(reflectPath);
         assertTrue(json.contains("com.example.ManualOne"));
         assertTrue(json.contains("com.example.ManualTwo"));
+
+        Path reachabilityPath = classes
+                .resolve("META-INF/native-image")
+                .resolve(project.getGroupId())
+                .resolve(project.getArtifactId())
+                .resolve("reachability-metadata.json");
+
+        assertTrue(Files.exists(reachabilityPath));
+        String metadata = Files.readString(reachabilityPath);
+        assertTrue(metadata.contains("\"reflection\""));
+        assertTrue(metadata.contains("\"type\":\"com.example.ManualOne\""));
+        assertTrue(metadata.contains("\"type\":\"com.example.ManualTwo\""));
+    }
+
+    @Test
+    void executeCanDisableReflectConfigIndependently() throws Exception {
+        TestUtils.setField(plugin, "generateReflectConfig", false);
+        TestUtils.setField(plugin, "baseClasses", " ");
+        TestUtils.setField(plugin, "reflectedClasses", "com.example.Manual");
+
+        plugin.execute();
+
+        Path classes = Path.of(project.getBuild().getOutputDirectory());
+        Path reflectPath = classes
+                .resolve("META-INF/native-image")
+                .resolve(project.getGroupId())
+                .resolve(project.getArtifactId())
+                .resolve("reflect-config.json");
+        Path reachabilityPath = classes
+                .resolve("META-INF/native-image")
+                .resolve(project.getGroupId())
+                .resolve(project.getArtifactId())
+                .resolve("reachability-metadata.json");
+
+        assertTrue(Files.notExists(reflectPath));
+        assertTrue(Files.exists(reachabilityPath));
+        assertTrue(Files.readString(reachabilityPath).contains("\"type\":\"com.example.Manual\""));
+    }
+
+    @Test
+    void executeCanDisableReachabilityMetadataIndependently() throws Exception {
+        TestUtils.setField(plugin, "generateReachabilityMetadata", false);
+        TestUtils.setField(plugin, "baseClasses", " ");
+        TestUtils.setField(plugin, "reflectedClasses", "com.example.Manual");
+
+        plugin.execute();
+
+        Path classes = Path.of(project.getBuild().getOutputDirectory());
+        Path reflectPath = classes
+                .resolve("META-INF/native-image")
+                .resolve(project.getGroupId())
+                .resolve(project.getArtifactId())
+                .resolve("reflect-config.json");
+        Path reachabilityPath = classes
+                .resolve("META-INF/native-image")
+                .resolve(project.getGroupId())
+                .resolve(project.getArtifactId())
+                .resolve("reachability-metadata.json");
+
+        assertTrue(Files.exists(reflectPath));
+        assertTrue(Files.notExists(reachabilityPath));
+        assertTrue(Files.readString(reflectPath).contains("\"name\":\"com.example.Manual\""));
     }
 
     @Test
@@ -290,9 +378,10 @@ class CodegenConcreteClassPluginTest {
     }
 
     @Test
-    void writeReflectConfigIsSkippedWhenDisabled() throws Exception {
+    void disabledReflectConfigStillAllowsReachabilityMetadata() throws Exception {
         TestUtils.setField(plugin, "generateReflectConfig", false);
-        TestUtils.setField(plugin, "baseClasses", "com.example.Base");
+        TestUtils.setField(plugin, "baseClasses", " ");
+        TestUtils.setField(plugin, "reflectedClasses", "com.example.Manual");
 
         plugin.execute();
 
@@ -302,8 +391,15 @@ class CodegenConcreteClassPluginTest {
                 .resolve(project.getGroupId())
                 .resolve(project.getArtifactId())
                 .resolve("reflect-config.json");
+        Path reachabilityPath = classes
+                .resolve("META-INF/native-image")
+                .resolve(project.getGroupId())
+                .resolve(project.getArtifactId())
+                .resolve("reachability-metadata.json");
 
         assertTrue(Files.notExists(reflectPath));
+        assertTrue(Files.exists(reachabilityPath));
+        assertTrue(Files.readString(reachabilityPath).contains("\"type\":\"com.example.Manual\""));
     }
 
     @Test

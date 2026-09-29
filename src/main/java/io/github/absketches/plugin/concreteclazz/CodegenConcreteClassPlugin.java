@@ -35,13 +35,14 @@ import static io.github.absketches.plugin.concreteclazz.ClassFileUtils.formatRes
 import static io.github.absketches.plugin.concreteclazz.ClassFileUtils.isConcrete;
 import static io.github.absketches.plugin.concreteclazz.ClassFileUtils.isSubclassOfBase;
 import static io.github.absketches.plugin.concreteclazz.ClassFileUtils.mergeJson;
+import static io.github.absketches.plugin.concreteclazz.ClassFileUtils.mergeReachabilityMetadataJson;
 import static io.github.absketches.plugin.concreteclazz.ClassFileUtils.parseBaseClasses;
 import static io.github.absketches.plugin.concreteclazz.ClassFileUtils.readAllPropertiesFromJarDir;
 import static io.github.absketches.plugin.concreteclazz.ClassFileUtils.toDotted;
 
 /**
  * Generates META-INF/io/github/absketches/plugin/services.index (module + dependencies) containing all concrete subclasses of the configured baseClass(es).
- * Merges into reflect-config.json to make applications GraalVM Native Image compatible.
+ * Merges into GraalVM Native Image metadata to make applications compatible with native builds.
  * Uses precompiled indexes from dependencies if they exist.
  * Stores subclasses in memory and checks to avoid re-walking super chains.
  * Skips writing the index if content didn't change.
@@ -75,10 +76,16 @@ public final class CodegenConcreteClassPlugin extends AbstractMojo {
     private boolean usePrecompiledLists;
 
     /**
-     * Enable/disable generating reflect-config.json - this can help with using reflection in Native images
+     * Enable/disable generating reachability-metadata.json - this is the current GraalVM Native Image metadata format.
+     */
+    @Parameter(property = "codegenConcreteClass.generateReachabilityMetadata", defaultValue = "true")
+    private boolean generateReachabilityMetadata = true;
+
+    /**
+     * Enable/disable generating legacy reflect-config.json for older GraalVM Native Image builds.
      */
     @Parameter(property = "codegenConcreteClass.generateReflectConfig", defaultValue = "true")
-    private boolean generateReflectConfig;
+    private boolean generateReflectConfig = true;
 
     /**
      * The reflected Classes can be set via -DcodegenConcreteClass.reflectedClasses=org.abc.impl1,...
@@ -90,10 +97,6 @@ public final class CodegenConcreteClassPlugin extends AbstractMojo {
 
     @Override
     public void execute() throws MojoExecutionException {
-        final Map<String, ClassHeader> headers = new HashMap<>(); // Headers for each class
-        final Map<String, Set<String>> precompiledMap = new LinkedHashMap<>(); // precomputed impls per base
-        final Map<String, Set<String>> result = new LinkedHashMap<>();
-
         try {
             final Path classesDir = Path.of(project.getBuild().getOutputDirectory());
             if (!Files.isDirectory(classesDir)) {
@@ -101,39 +104,67 @@ public final class CodegenConcreteClassPlugin extends AbstractMojo {
                 return;
             }
 
-            if (!baseClasses.isBlank()) {
-                // Build allowed base types
-                final List<String> requestedClasses = parseBaseClasses(baseClasses);
-
-                // Scan own classes
-                scanDirectory(classesDir, headers);
-
-                // Scan dependencies (use precomputed properties when available) - or always scan using property usePrecompiled=false
-                for (Artifact artifact : project.getArtifacts()) {
-                    processArtifact(artifact, headers, precompiledMap, requestedClasses);
-                }
-                log("[codegen-svc-list] headers size = " + headers.size(), 'I');
-
-                // For each configured base type, collect implementations
-                for (String base : requestedClasses) {
-                    final Map<String, Boolean> cache = new HashMap<>(); // Cache already iterated paths
-                    gatherConcreteClasses(base, headers, result, cache, precompiledMap);
-                }
-                writeProperties(classesDir, result);
-            }
-
-            if (generateReflectConfig) {
-                final List<String> requestedForReflection = parseBaseClasses(reflectedClasses);
-                final Set<String> reflectedClassSet = result.values().stream().flatMap(Set::stream).collect(Collectors.toCollection(LinkedHashSet::new));
-                reflectedClassSet.addAll(requestedForReflection.stream().map(ClassFileUtils::toDotted).collect(Collectors.toSet()));
-                writeReflectConfig(reflectedClassSet, classesDir);
-            } else {
-                log("[codegen-svc-list] reflect-config.json generation disabled", 'I');
-            }
+            final Map<String, Set<String>> result = writeServiceIndex(classesDir);
+            writeNativeImageMetadata(classesDir, result);
         } catch (Exception ex) {
             log("Exception occurred: " + ex, 'E');
             throw new MojoExecutionException("codegen-svc-list failed", ex);
         }
+    }
+
+    private Map<String, Set<String>> writeServiceIndex(final Path classesDir) throws IOException {
+        final Map<String, Set<String>> result = new LinkedHashMap<>();
+        if (baseClasses == null || baseClasses.isBlank()) {
+            return result;
+        }
+
+        final List<String> requestedClasses = parseBaseClasses(baseClasses);
+        final Map<String, ClassHeader> headers = new HashMap<>();
+        final Map<String, Set<String>> precompiledMap = new LinkedHashMap<>();
+
+        scanDirectory(classesDir, headers);
+        scanArtifacts(headers, precompiledMap, requestedClasses);
+        log("[codegen-svc-list] headers size = " + headers.size(), 'I');
+
+        for (String base : requestedClasses) {
+            final Map<String, Boolean> cache = new HashMap<>();
+            gatherConcreteClasses(base, headers, result, cache, precompiledMap);
+        }
+        writeProperties(classesDir, result);
+        return result;
+    }
+
+    private void scanArtifacts(final Map<String, ClassHeader> headers, final Map<String, Set<String>> precompiledMap, final List<String> requestedClasses) {
+        for (Artifact artifact : project.getArtifacts()) {
+            processArtifact(artifact, headers, precompiledMap, requestedClasses);
+        }
+    }
+
+    private void writeNativeImageMetadata(final Path classesDir, final Map<String, Set<String>> result) throws IOException {
+        if (!generateReachabilityMetadata && !generateReflectConfig) {
+            log("[codegen-svc-list] Native Image metadata generation disabled", 'I');
+            return;
+        }
+
+        final Set<String> reflectedClassSet = reflectedClassSet(result);
+        if (generateReachabilityMetadata) {
+            writeReachabilityMetadata(reflectedClassSet, classesDir);
+        } else {
+            log("[codegen-svc-list] reachability-metadata.json generation disabled", 'I');
+        }
+        if (generateReflectConfig) {
+            writeReflectConfig(reflectedClassSet, classesDir);
+        } else {
+            log("[codegen-svc-list] reflect-config.json generation disabled", 'I');
+        }
+    }
+
+    private Set<String> reflectedClassSet(final Map<String, Set<String>> result) {
+        final Set<String> reflectedClassSet = result.values().stream()
+            .flatMap(Set::stream)
+            .collect(Collectors.toCollection(LinkedHashSet::new));
+        reflectedClassSet.addAll(parseBaseClasses(reflectedClasses));
+        return reflectedClassSet;
     }
 
     private void scanDirectory(final Path root, final Map<String, ClassHeader> out) throws IOException {
@@ -238,14 +269,10 @@ public final class CodegenConcreteClassPlugin extends AbstractMojo {
 
     private void writeReflectConfig(final Set<String> classNames, final Path classesDir) throws IOException {
         if (null == classNames || classNames.isEmpty()) {
-            log("[codegen-svc-list] Nothing to write", 'I');
+            log("[codegen-svc-list] Nothing to write into reflect-config.json", 'I');
             return;
         }
-        final Path configOutput = classesDir
-            .resolve("META-INF/native-image")
-            .resolve(project.getGroupId())
-            .resolve(project.getArtifactId())
-            .resolve("reflect-config.json");
+        final Path configOutput = nativeImageMetadataDir(classesDir).resolve("reflect-config.json");
 
         Files.createDirectories(configOutput.getParent());
 
@@ -254,6 +281,29 @@ public final class CodegenConcreteClassPlugin extends AbstractMojo {
         final String json = mergeJson(classNames, existing);
         Files.writeString(configOutput, json, StandardCharsets.UTF_8);
         log("[codegen-svc-list] Updated " + classNames.size() + " classes into " + configOutput, 'I');
+    }
+
+    private void writeReachabilityMetadata(final Set<String> classNames, final Path classesDir) throws IOException {
+        if (null == classNames || classNames.isEmpty()) {
+            log("[codegen-svc-list] Nothing to write into reachability-metadata.json", 'I');
+            return;
+        }
+        final Path configOutput = nativeImageMetadataDir(classesDir).resolve("reachability-metadata.json");
+
+        Files.createDirectories(configOutput.getParent());
+
+        final String existing = Files.exists(configOutput) ? Files.readString(configOutput, StandardCharsets.UTF_8) : null;
+
+        final String json = mergeReachabilityMetadataJson(classNames, existing);
+        Files.writeString(configOutput, json, StandardCharsets.UTF_8);
+        log("[codegen-svc-list] Updated " + classNames.size() + " classes into " + configOutput, 'I');
+    }
+
+    private Path nativeImageMetadataDir(final Path classesDir) {
+        return classesDir
+            .resolve("META-INF/native-image")
+            .resolve(project.getGroupId())
+            .resolve(project.getArtifactId());
     }
 
     private void log(final String msg, final char level) {
